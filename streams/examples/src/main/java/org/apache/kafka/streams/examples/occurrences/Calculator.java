@@ -50,7 +50,14 @@ public final class Calculator {
         final KStream<String, String> source = builder
                 .stream("stream-in", Consumed.with(Serdes.String(), Serdes.String()));
 
-        source.to("stream-out", Produced.with(Serdes.String(), Serdes.Long()));
+        // Produces a table of tuples and keeps them updated
+        final KTable<String, Long> counts = source
+                .flatMap((k, v) -> splitIntoTuples(k, v))
+                .peek((k, v) -> System.out.println(k))
+                .groupBy((k, v)-> k)
+                .count();
+
+        counts.toStream().to("stream-out", Produced.with(Serdes.String(), Serdes.Long()));
 
         Topology topology = builder.build();
         final KafkaStreams streams = new KafkaStreams(topology, props);
@@ -71,6 +78,21 @@ public final class Calculator {
             System.exit(1);
         }
         System.exit(0);
+    }
+
+    // splits values into tuples 
+    private static List<KeyValue<String,String>> splitIntoTuples(String k, String v) {
+        String[] s = v.split(",");
+
+        List<String> events = new ArrayList<>();
+        for(int i = 0; i < s.length; i++){
+            for (int j = 0; j < s.length; j++){
+                if (s[i] == s[j]) continue;
+                if (j < i) continue;
+                events.add(String.format("%s,%s", s[i], s[j]));
+            }
+        }
+        return events.stream().map(item -> KeyValue.pair(item, "")).collect(Collectors.toList());
     }
 
 }
